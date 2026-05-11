@@ -252,9 +252,26 @@ function printMarkdown(report) {
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-export default function ReportView({ report, onReset }) {
-  const [reportOpen,  setReportOpen]  = useState(false)
-  const [reportFormat, setReportFormat] = useState('json') // 'json' | 'markdown'
+export default function ReportView({ report, onReset, onRetryWithPassword }) {
+  const [reportOpen,    setReportOpen]    = useState(false)
+  const [reportFormat,  setReportFormat]  = useState('json') // 'json' | 'markdown'
+  const [password,      setPassword]      = useState('')
+  const [pwdError,      setPwdError]      = useState(null)
+  const [retrying,      setRetrying]      = useState(false)
+
+  const handlePasswordSubmit = async (e) => {
+    e.preventDefault()
+    if (!password.trim()) return
+    setPwdError(null)
+    setRetrying(true)
+    try {
+      await onRetryWithPassword(password.trim())
+    } catch (err) {
+      setPwdError(err.message || 'Analysis failed. Check the password and try again.')
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   const downloadJson = () => {
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
@@ -313,6 +330,67 @@ export default function ReportView({ report, onReset }) {
           </button>
         </div>
       </div>
+
+      {/* ── Encrypted PDF alert + password unlock ───────────────────────── */}
+      {report.extracted_metadata?.is_encrypted && (
+        <div className="bg-red-50 border-2 border-red-400 rounded-xl px-5 py-5 space-y-4">
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0 bg-red-100 rounded-full p-2.5">
+              <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-base font-bold text-red-900">Encrypted / Password-Protected PDF</h3>
+              <p className="mt-1 text-sm text-red-800 leading-relaxed">
+                This PDF is encrypted. Most metadata fields could not be read because the document
+                is password-protected. The analysis below reflects only what was accessible
+                without a password (e.g. PDF version, file size).
+              </p>
+              <p className="mt-2 text-sm text-red-700 font-medium">
+                Metadata analysis is incomplete. Risk assessment is based on the encryption signal alone.
+              </p>
+            </div>
+          </div>
+
+          {/* Password unlock form */}
+          <form onSubmit={handlePasswordSubmit} className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-1 border-t border-red-200">
+            <label className="text-sm font-semibold text-red-900 whitespace-nowrap">
+              Have the password?
+            </label>
+            <div className="flex flex-1 gap-2 w-full sm:w-auto">
+              <input
+                type="password"
+                value={password}
+                onChange={e => { setPassword(e.target.value); setPwdError(null) }}
+                placeholder="Enter PDF password…"
+                className="flex-1 min-w-0 px-3 py-2 text-sm border border-red-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-red-400 placeholder-red-300"
+              />
+              <button
+                type="submit"
+                disabled={retrying || !password.trim()}
+                className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-red-500"
+              >
+                {retrying ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                    Unlocking…
+                  </>
+                ) : 'Unlock & Re-analyze'}
+              </button>
+            </div>
+            {pwdError && (
+              <p className="w-full text-xs font-medium text-red-700 mt-1">
+                {pwdError}
+              </p>
+            )}
+          </form>
+        </div>
+      )}
 
       {/* ── Summary ─────────────────────────────────────────────────────── */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg px-5 py-4">

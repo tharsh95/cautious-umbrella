@@ -66,13 +66,12 @@ class MetadataExtractor:
     """Extracts metadata from PDF, image, and DOCX files."""
 
     @staticmethod
-    def extract_pdf_metadata(file_bytes: bytes) -> Dict[str, Any]:
+    def extract_pdf_metadata(file_bytes: bytes, password: Optional[str] = None) -> Dict[str, Any]:
         """Extract metadata from a PDF file and return a normalised dict."""
         try:
-            doc  = fitz.open(stream=file_bytes, filetype="pdf")
-            meta = doc.metadata
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
 
-            # PDF version from the file header
+            # PDF version from the file header (always readable, even encrypted)
             pdf_version: Optional[str] = None
             if len(file_bytes) >= 8:
                 header = file_bytes[:10].decode("ascii", errors="ignore")
@@ -80,8 +79,49 @@ class MetadataExtractor:
                 if m:
                     pdf_version = m.group(1)
 
-            encryption_raw = meta.get("encryption")
-            is_encrypted   = bool(encryption_raw)
+            # Handle encryption
+            password_unlocked = False
+            if doc.is_encrypted:
+                if password:
+                    # Returns 0 on failure, non-zero on success
+                    auth_result = doc.authenticate(password)
+                    if auth_result == 0:
+                        doc.close()
+                        raise ValueError(
+                            "Incorrect password. The PDF could not be unlocked with the provided password."
+                        )
+                    # Successfully authenticated — fall through to normal extraction
+                    password_unlocked = True
+                else:
+                    # No password provided — return partial result so UI can prompt
+                    doc.close()
+                    return {
+                        "created_date":        None,
+                        "modified_date":       None,
+                        "raw_created_date":    None,
+                        "raw_modified_date":   None,
+                        "author":              None,
+                        "creator":             None,
+                        "producer":            None,
+                        "title":               None,
+                        "subject":             None,
+                        "page_count":          None,
+                        "is_encrypted":        True,
+                        "pdf_version":         pdf_version,
+                        "incremental_updates": 0,
+                        "prev_xref_count":     0,
+                    }
+
+            meta = doc.metadata or {}
+
+            # is_encrypted = metadata access was blocked by encryption.
+            # After a successful password unlock, metadata is accessible so we
+            # treat the document as "not encrypted" for the purposes of this flag.
+            if password_unlocked:
+                is_encrypted = False
+            else:
+                encryption_raw = meta.get("encryption")
+                is_encrypted   = bool(encryption_raw)
 
             # Keep raw date strings for format validation check
             raw_created  = meta.get("creationDate") or None
@@ -112,6 +152,8 @@ class MetadataExtractor:
             doc.close()
             return result
 
+        except ValueError:
+            raise
         except Exception as exc:
             raise ValueError(f"Failed to extract PDF metadata: {exc}") from exc
 
@@ -217,11 +259,11 @@ class MetadataExtractor:
             raise ValueError(f"Failed to extract DOCX metadata: {exc}") from exc
 
     @staticmethod
-    def extract(file_bytes: bytes, filename: str) -> Dict[str, Any]:
+    def extract(file_bytes: bytes, filename: str, password: Optional[str] = None) -> Dict[str, Any]:
         """Dispatch to the correct extractor based on file extension."""
         lower = filename.lower()
         if lower.endswith(".pdf"):
-            return MetadataExtractor.extract_pdf_metadata(file_bytes)
+            return MetadataExtractor.extract_pdf_metadata(file_bytes, password=password)
         if lower.endswith((".jpg", ".jpeg", ".png", ".tiff", ".bmp")):
             return MetadataExtractor.extract_image_metadata(file_bytes)
         if lower.endswith(".docx"):

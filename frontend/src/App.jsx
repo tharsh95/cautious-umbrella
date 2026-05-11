@@ -4,15 +4,35 @@ import UploadArea from './components/UploadArea'
 import ReportView from './components/ReportView'
 import CompareView from './components/CompareView'
 
+async function analyzeFile(file, password = null) {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (password) formData.append('password', password)
+
+  const response = await fetch('http://localhost:8000/api/analyze', {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    throw new Error(errorData.detail || 'Analysis failed')
+  }
+
+  return response.json()
+}
+
 function App() {
-  const [mode, setMode]       = useState('analyze')  // 'analyze' | 'compare'
-  const [report, setReport]   = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState(null)
+  const [mode, setMode]           = useState('analyze')
+  const [report, setReport]       = useState(null)
+  const [uploadedFile, setUploadedFile] = useState(null)
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState(null)
 
   const handleModeChange = (newMode) => {
     setMode(newMode)
     setReport(null)
+    setUploadedFile(null)
     setError(null)
   }
 
@@ -20,22 +40,10 @@ function App() {
     setLoading(true)
     setError(null)
     setReport(null)
-
-    const formData = new FormData()
-    formData.append('file', file)
+    setUploadedFile(file)
 
     try {
-      const response = await fetch('http://localhost:8000/api/analyze', {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Analysis failed')
-      }
-
-      const data = await response.json()
+      const data = await analyzeFile(file)
       setReport(data)
     } catch (err) {
       setError(err.message || 'An error occurred while analyzing the document')
@@ -44,8 +52,22 @@ function App() {
     }
   }
 
+  const handleRetryWithPassword = async (password) => {
+    if (!uploadedFile) return
+    // Do NOT clear the report — keep ReportView mounted so it can show its
+    // own inline spinner and display any password error without unmounting.
+    try {
+      const data = await analyzeFile(uploadedFile, password)
+      setReport(data)
+    } catch (err) {
+      // Re-throw so ReportView's handlePasswordSubmit can set pwdError inline.
+      throw err
+    }
+  }
+
   const handleReset = () => {
     setReport(null)
+    setUploadedFile(null)
     setError(null)
   }
 
@@ -76,7 +98,11 @@ function App() {
             )}
 
             {report && (
-              <ReportView report={report} onReset={handleReset} />
+              <ReportView
+                report={report}
+                onReset={handleReset}
+                onRetryWithPassword={handleRetryWithPassword}
+              />
             )}
           </>
         )}

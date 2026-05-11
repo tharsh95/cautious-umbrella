@@ -434,19 +434,48 @@ def check_missing_title(meta: ExtractedMetadata) -> Optional[Finding]:
 
 
 def check_encrypted(meta: ExtractedMetadata) -> Optional[Finding]:
-    """Document is encrypted."""
-    if meta.is_encrypted:
+    """
+    Document is encrypted.
+
+    Two distinct cases:
+    - All key fields are None because encryption blocked extraction → High risk.
+    - Document is encrypted but metadata was still readable (some PDFs allow this)
+      → Low, informational signal only.
+    """
+    if not meta.is_encrypted:
+        return None
+
+    metadata_inaccessible = not any([
+        meta.created_date, meta.modified_date, meta.author,
+        meta.creator, meta.producer, meta.title,
+    ])
+
+    if metadata_inaccessible:
         return Finding(
-            title="Document is Encrypted",
-            severity="Low",
-            confidence=0.50,
+            title="Document Encrypted — Metadata Inaccessible",
+            severity="High",
+            confidence=0.85,
             explanation=(
-                "The document is encrypted. Encryption is legitimate for security "
-                "purposes, but it may prevent full inspection of the document's internal "
-                "structure and could obscure further anomalies."
+                "The document is password-protected and no metadata could be extracted. "
+                "Because the full document content and metadata are inaccessible, a "
+                "complete analysis is not possible. Encryption may be used for legitimate "
+                "security purposes, but it also prevents verification of document "
+                "authenticity. This document requires manual review with the correct "
+                "password before it can be assessed."
             ),
         )
-    return None
+
+    # Encrypted but some metadata was still readable
+    return Finding(
+        title="Document is Encrypted",
+        severity="Low",
+        confidence=0.50,
+        explanation=(
+            "The document is encrypted. Encryption is legitimate for security "
+            "purposes, but it may prevent full inspection of the document's internal "
+            "structure and could obscure further anomalies."
+        ),
+    )
 
 
 def check_pdf_version_missing(meta: ExtractedMetadata) -> Optional[Finding]:

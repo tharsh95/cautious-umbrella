@@ -1,7 +1,9 @@
 """Main FastAPI application — Document Metadata Mutation Checker."""
 import traceback
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from typing import Optional
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from checks import MetadataChecker
@@ -43,11 +45,15 @@ async def health():
 
 
 @app.post("/api/analyze", response_model=AnalysisReport)
-async def analyze_document(file: UploadFile = File(...)):
+async def analyze_document(
+    file: UploadFile = File(...),
+    password: Optional[str] = Form(None),
+):
     """
     Upload a document and receive a structured metadata analysis report.
 
     Accepted formats: PDF, DOCX, JPG, PNG, TIFF, BMP.
+    Pass an optional `password` form field for password-protected PDFs.
     """
     # ------------------------------------------------------------------ #
     # 1. Read file with a hard size guard                                  #
@@ -72,7 +78,7 @@ async def analyze_document(file: UploadFile = File(...)):
     # 3. Extract metadata                                                  #
     # ------------------------------------------------------------------ #
     try:
-        raw = MetadataExtractor.extract(file_bytes, file.filename)
+        raw = MetadataExtractor.extract(file_bytes, file.filename, password=password)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
